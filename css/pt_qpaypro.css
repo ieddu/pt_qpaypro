@@ -1,0 +1,75 @@
+.commerce_payment .commerce-credit-card-expiration .commerce-month-year-divider {
+    display: none;
+}
+
+.commerce_payment .commerce-credit-card-expiration .form-type-select {
+    width: 23%!important;
+    margin-right: 11px!important;
+}
+
+#edit-commerce-payment-payment-method label {
+    background: url(../images/visamaster-icon.png) no-repeat 0 5px transparent;
+    display: inline-block;
+    padding-top: 0;
+    margin-top: 8px;
+    background-size: contain;
+    text-indent: -999em;
+    width: 99px;
+    padding-bottom: 10px;
+}
+
+@media only screen and (min-width: 280px) and (max-width: 480px) {
+
+    .commerce_payment .commerce-credit-card-expiration .form-type-select {
+        width: 100% !important;
+        margin-right: 11px !important;
+    }
+
+    #payment-details .form-item {
+        width: 100%!important;
+    }
+
+    .commerce_payment .form-item-commerce-payment-payment-details-credit-card-cuotas label {
+        font-size: 12px;
+    }
+
+}/* End */
+
+
+@media only screen and (min-width: 481px) and (max-width: 640px) {
+
+    .commerce_payment .commerce-credit-card-expiration .form-type-select {
+        width: 100% !important;
+        margin-right: 11px !important;
+    }
+
+    #payment-details .form-item {
+        width: 100%!important;
+    }
+
+    .commerce_payment .form-item-commerce-payment-payment-details-credit-card-cuotas label {
+        font-size: 12px;
+    }
+
+
+}/* End */
+
+/* max-width 640px, mobile-only styles, use when QAing mobile issues */
+@media only screen and (max-width: 40em) { }
+
+
+
+/* Medium screens */
+/* min-width 641px and max-width 767px medium screens */
+@media only screen and (min-width: 40.063em) and (max-width: 47.9em) {
+
+}
+
+/* min-width 768px and max-width 980px, use when QAing tablet-only issues */
+@media only screen and (min-width: 48em) and (max-width: 61.25em) {
+
+}
+/*  max-width 980px */
+@media screen and (max-width: 61.25em) {
+
+}

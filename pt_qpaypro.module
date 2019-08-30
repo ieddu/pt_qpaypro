@@ -1,0 +1,497 @@
+<?php
+/**
+ * User: ieddu/Pixtig
+ * @file pt_qpaypro.module
+ * Enables the use of QPayPro as payment method for commerce.
+ */
+
+define('QPAYPRO_METHOD_ID', 'commerce_qpaypro');
+define('QPAYPRO_URL', 'https://sandbox.qpaypro.com/payment/api_v1');
+
+/**
+ * Implements hook_commerce_payment_method_info(). Para crear un nuevo método de pago
+ */
+function pt_qpaypro_commerce_payment_method_info() {
+    $payment_methods = array();
+    $payment_methods[QPAYPRO_METHOD_ID] = array(
+        'title' => t('QPayPro - Credit Card'),
+        'display_title' => t('Credit Card'),
+        'description' => t('Integrates QPayPro Method for Payment.'),
+        'callbacks' => array(
+            'settings_form' => 'pt_qpaypro_pcc_commerce_payment_method_settings_form',
+            'submit_form' => 'pt_qpaypro_pcc_commerce_payment_method_submit_form',
+            'submit_form_validate' => 'pt_qpaypro_pcc_commerce_payment_method_submit_form_validate',
+            'submit_form_submit' => 'pt_qpaypro_pcc_commerce_payment_method_submit_form_submit',
+        ),
+    );
+
+    return $payment_methods;
+}
+
+/**
+ * Define default values to qpaypro payment settings method.
+ *
+ * @return string
+ *   Array with default values for qpaypro payment settings method.
+ *
+ */
+function _commerce_qpaypro_default_settings() {
+    return array(
+        'qpaypro_login' => '',
+        'qpaypro_key' => '',
+        'qpaypro_secret' => '',
+        'qpaypro_visacuotas' => '',
+        'qpaypro_url' => QPAYPRO_URL,
+        'qpaypro_org_id' => '',
+        'qpaypro_card_types' => array(),
+    );
+}
+
+/**
+ * Implements CALLBACK_commerce_payment_method_settings_form().
+ */
+function pt_qpaypro_pcc_commerce_payment_method_settings_form($settings = array()) {
+    module_load_include('inc', 'commerce_payment', 'includes/commerce_payment.credit_card');
+
+    $settings = (array) $settings + _commerce_qpaypro_default_settings();
+
+    $form = array();
+
+    $form['qpaypro_login'] = array(
+        '#type' => 'textfield',
+        '#title' => t('QPayPro login'),
+        '#description' => t('The QPayPro login of the business (test: visanetgt_qpay).'),
+        '#default_value' => $settings['qpaypro_login'],
+        '#required' => TRUE,
+    );
+
+    $form['qpaypro_key'] = array(
+        '#type' => 'textfield',
+        '#title' => t('QPayPro Key'),
+        '#description' => t('The QPayPro key of the business (test: 88888888888).'),
+        '#default_value' => $settings['qpaypro_key'],
+        '#required' => TRUE,
+    );
+
+    $form['qpaypro_secret'] = array(
+        '#type' => 'textfield',
+        '#title' => t('QPayPro Secret'),
+        '#description' => t('The QPayPro Secret of the business (test: 99999999999).'),
+        '#default_value' => $settings['qpaypro_secret'],
+        '#required' => TRUE,
+    );
+
+    $form['qpaypro_url'] = array(
+        '#type' => 'textfield',
+        '#title' => t('QPayPro Url'),
+        '#description' => t('The QPayPro url to send request (test: https://sandbox.qpaypro.com/payment/api_v1).'),
+        '#default_value' => $settings['qpaypro_url'],
+        '#required' => TRUE,
+    );
+
+    $form['qpaypro_visacuotas'] = array(
+        '#type' => 'checkbox',
+        '#title' => t('Visa en cuotas/Master cuotas'),
+        '#description' => t('Activate or deactivate visacuotas.'),
+        '#default_value' => $settings['qpaypro_visacuotas'],
+    );
+
+    $form['qpaypro_org_id'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Org ID'),
+        '#description' => t('The OrgID (test: 1snn5n9w / live: k8vif92e).'),
+        '#default_value' => $settings['qpaypro_org_id'],
+        '#required' => TRUE,
+    );
+
+    $form['qpaypro_card_types'] = array(
+        '#type' => 'checkboxes',
+        '#title' => t('The credit cards accepted'),
+        '#description' => t('The acceptable credict card types.'),
+        '#options' => commerce_payment_credit_card_types(),
+        '#default_value' => $settings['qpaypro_card_types'],
+    );
+
+    return $form;
+}
+
+/**
+ * Implements CALLBACK_method_submit_form().
+ */
+function pt_qpaypro_pcc_commerce_payment_method_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
+    module_load_include('inc', 'commerce_payment', 'includes/commerce_payment.credit_card');
+    $testMode = true;
+    $sessionID = uniqid();
+    $orgID = $testMode ? '1snn5n9w' : 'k8vif92e';
+    $mechantID = 'visanetgt_qpay';
+
+    $timeStamp = time();
+    drupal_add_js('https://h.online-metrix.net/fp/tags.js?org_id='.$orgID.'&session_id='.$mechantID.$sessionID, 'external');
+
+    // Prepare the fields to include on the credit card form.
+    $fields = array(
+        'owner' => '',
+        'code' => '',
+    );
+
+    // Add the credit card types array if necessary.
+    $card_types = array_diff(array_values($payment_method['settings']['qpaypro_card_types']), array(0));
+
+    if (!empty($card_types)) {
+        $fields['type'] = $card_types;
+    }
+    $form = commerce_payment_credit_card_form($fields);
+
+    $form['credit_card']['zip_code'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Código Postal'),
+        '#default_value' => '',
+        '#required' => TRUE,
+        '#maxlength' => 10,
+        '#size' => 10,
+    );
+
+    //If is active cuotas
+    if($payment_method['settings']['qpaypro_visacuotas'] == 1){
+        $form['credit_card']['cuotas'] = array(
+            '#type' => 'select',
+            '#title' => t('Visa en cuotas ó Master cuotas'),
+            '#options' => array(
+                0 => t('No'),
+                3 => t('3 cuotas'),
+                6 => t('6 cuotas'),
+                10 => t('10 cuotas'),
+                12 => t('12 cuotas'),
+                15 => t('15 cuotas'),
+                18 => t('18 cuotas'),
+            ),
+            '#default_value' => 1,
+            '#description' => t('Antes de pagar en cuotas, llame a su banco para confirmar si tiene cuotas disponibles (válido solo en Guatemala).'),
+        );
+    } else {
+        $form['credit_card']['cuotas'] = array('#type' => 'hidden', '#value' => 0);
+    }
+
+    $form['credit_card']['session_id'] = array('#type' => 'hidden', '#value' => $sessionID);
+
+    // Iterate over the line items order to find any product that belongs to
+    // Club Promerica catalog.
+    // @TODO It's necessary implements the module_implements() to move the below code to the pt_promerica module.
+    $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+    $promerica_products = variable_get('pt_promerica_products', array());
+    foreach ($order_wrapper->commerce_line_items as $idx => $line_item) {
+        $temp = NULL;
+        if ('product' == $line_item->getBundle()) {
+            $temp = $line_item->value();
+            $form['has_promerica_products'] = array(
+                '#type' => 'hidden',
+                '#value' => (int)in_array($temp->data['context']['entity']['entity_id'], $promerica_products),
+            );
+            break;
+        }
+    }
+    // --
+
+    return $form;
+}
+
+
+/**
+ * Implements CALLBACK_method_submit_form_validate().
+ */
+function pt_qpaypro_pcc_commerce_payment_method_submit_form_validate($payment_method, $pane_form, $pane_values, $order, $form_parents = array()) {
+    module_load_include('inc', 'commerce_payment', 'includes/commerce_payment.credit_card');
+
+    // Validate the credit card fields.
+    $settings = array(
+        'form_parents' => array_merge($form_parents, array('credit_card')),
+    );
+
+    if (!commerce_payment_credit_card_validate($pane_values['credit_card'], $settings)) {
+        return FALSE;
+    }
+
+    // If the order have a Promerica product validates that the user has input
+    // a debit or credit card of Banco Promerica.
+    // @TODO It's necessary implements the module_implements() to move the below code to the pt_promerica module.
+    if ((int)$pane_values['has_promerica_products']) {
+        $match = FALSE;
+        $promerica_bins = variable_get('pt_promerica_bins', array());
+        foreach ($promerica_bins as $bin) {
+            if (CommercePaymentCreditCard::matchPrefix($pane_values['credit_card']['number'], $bin)) {
+                $match = TRUE;
+                break;
+            }
+        }
+
+        if (!$match) {
+            drupal_set_message('Actualmente tienes en tu orden productos promocionados por <strong>Banco Promerica</strong>.<br />
+                Si deseas pagar tu orden con una tarjeta de otro banco, quita los productos relacionados con la promoción de <strong>Banco Promerica</strong>.', 'warning');
+            return $match;
+        }
+    }
+    // --
+
+}
+
+
+/**
+ * Implements CALLBACK_method_submit_form_submit().
+ */
+function pt_qpaypro_pcc_commerce_payment_method_submit_form_submit($payment_method, $pane_form, $pane_values, $order, $charge) {
+    // Determine the credit card type if possible for use in later code.
+    $card_type = '';
+    if (!empty($pane_values['credit_card']['number'])) {
+        module_load_include('inc', 'commerce_payment', 'includes/commerce_payment.credit_card');
+        $card_type = commerce_payment_validate_credit_card_type($pane_values['credit_card']['number'], array_keys(commerce_payment_credit_card_types()));
+    }
+
+    // If the charge amount is 0...
+    if ($charge['amount'] == 0) {
+        if (!$continue = _pt_qpaypro_save_invalid_transaction_for_amount($payment_method, $charge, $order, $card_type)) {
+            return $continue;
+        }
+    }
+
+    // Build a description for the order.
+    $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+
+    $description = array();
+    foreach ($order_wrapper->commerce_line_items as $delta => $line_item_wrapper) {
+        if (in_array($line_item_wrapper->type->value(), commerce_product_line_item_types())) {
+            $description[] = round($line_item_wrapper->quantity->value(), 2) . 'x ' . $line_item_wrapper->line_item_label->value();
+        }
+    }
+
+    $billing_address = array();
+    if ($order_wrapper->commerce_customer_billing->value()) {
+        $billing_address = $order_wrapper->commerce_customer_billing->commerce_customer_address->value();
+
+        if (empty($billing_address['first_name'])) {
+            $name_parts = explode(' ', $billing_address['name_line']);
+            $billing_address['first_name'] = array_shift($name_parts);
+            $billing_address['last_name'] = implode(' ', $name_parts);
+        }
+    }
+
+    // Obteniendo Informacion de los productos
+    $productos = [];
+    foreach ($order_wrapper->commerce_line_items as $delta => $line_item_wrapper) {
+        if(!empty($line_item_wrapper->commerce_product)){
+            $product_wrapper = $line_item_wrapper->commerce_product->value();
+            // valores para calcular el precio del producto
+            $monto = $product_wrapper->commerce_price['und'][0]['amount'];
+            $moneda = $product_wrapper->commerce_price['und'][0]['currency_code'];
+
+            //== Construyendo items de la carreta
+            $strProduct = $product_wrapper->title.'<|>';
+            $strProduct .= $product_wrapper->product_id.'<|>';
+            $strProduct .= '1<|>';
+            $strProduct .= commerce_currency_amount_to_decimal($monto, $moneda).'<|>D';
+            $productos[] = $strProduct;
+        }
+    }
+
+    //== obteniendo perfil del comprador
+    $profile = commerce_customer_profile_load($order->commerce_customer_billing['und'][0]['profile_id']);
+
+    // Create parameters to consume webservices.
+    $data['x_login'] = $payment_method['settings']['qpaypro_login'];
+    $data['x_private_key'] = $payment_method['settings']['qpaypro_key'];
+    $data['x_api_secret'] = $payment_method['settings']['qpaypro_secret'];
+    $data['x_fp_sequence'] = $order->order_id;
+    $data['x_fp_timestamp'] = time();
+    $data['x_relay_response'] = 'false';
+    $data['x_product_id'] = $order->order_id;
+    $data['x_line_item'] = $productos[0];
+    $data['x_audit_number'] = str_pad('1', 6, "0", STR_PAD_LEFT);
+    $data['x_relay_url'] = "none";
+    $data['x_first_name'] = $billing_address['first_name'];
+    $data['x_last_name'] = $billing_address['last_name'];
+    $data['x_company'] = $profile->field_datos_de_facturacion['und'][0]['value'];
+    $data['x_address'] = $profile->commerce_customer_address['und'][0]['thoroughfare'];
+    $data['x_city'] = $profile->commerce_customer_address['und'][0]['locality'];
+    $data['x_state'] = $profile->commerce_customer_address['und'][0]['locality'];
+    $data['x_zip'] = $pane_values['credit_card']['zip_code'];
+    $data['x_country'] = $profile->commerce_customer_address['und'][0]['country'];
+    $data['x_phone'] = $profile->field_telefono_movil['und'][0]['value'];
+    $data['x_email'] = $order->mail;
+    $data['x_description'] = t('QPayPro For Drupal Commerce: Order Id ') . $order->order_id . t(' For ') . $order->mail . t(' Description ') . $description[0];
+    $data['x_amount'] = (float) commerce_currency_amount_to_decimal($charge['amount'], $charge['currency_code']);
+    $data['x_freight'] = 0; //Indica el valor del envió
+    $data['x_currency_code'] = $charge['currency_code'];
+    $data['x_method'] = 'CC';
+    $data['x_type'] = 'AUTH_ONLY';
+    $data['cc_number'] = str_replace(' ', '', $pane_values['credit_card']['number']);
+    $data['cc_exp'] = $pane_values['credit_card']['exp_month'] .'/'. substr($pane_values['credit_card']['exp_year'], -2);
+    $data['cc_cvv2'] = $pane_values['credit_card']['code'];
+    $data['cc_name'] = $pane_values['credit_card']['owner'];
+    $data['x_invoice_num'] = $order->order_id;
+    //$data['x_solution_id'] = 'A1000015';
+    /* Customer Shipping Address Fields */
+    //$data['x_ship_to_first_name'] = html_entity_decode($order->shipping_first_name, ENT_QUOTES, 'UTF-8');
+    //$data['x_ship_to_last_name'] = html_entity_decode($order->shipping_last_name, ENT_QUOTES, 'UTF-8');
+    //$data['x_ship_to_company'] = html_entity_decode($order->shipping_company, ENT_QUOTES, 'UTF-8');
+    //$data['x_ship_to_address'] = html_entity_decode($order->shipping_address_1,  ENT_QUOTES, 'UTF-8');
+    //$data['x_ship_to_city'] = html_entity_decode($order->shipping_city, ENT_QUOTES, 'UTF-8');
+    //$data['x_ship_to_state'] = html_entity_decode($order->shipping_state, ENT_QUOTES, 'UTF-8');
+    //$data['x_ship_to_zip'] = html_entity_decode($order->shipping_postcode, ENT_QUOTES, 'UTF-8');
+    //$data['x_ship_to_country'] = html_entity_decode($order->shipping_country, ENT_QUOTES, 'UTF-8');
+    $data['device_fingerprint_id'] = $pane_values['credit_card']['session_id'];
+    $data['visaencuotas'] = $pane_values['credit_card']['cuotas'];
+
+    // Submit the request to QPayPro.
+    $options = array(
+        'method' => 'POST',
+        'data' => http_build_query($data),
+        'timeout' => 30,
+        'headers' => array('Content-Type' => 'application/x-www-form-urlencoded'),
+    );
+    $response = drupal_http_request($payment_method['settings']['qpaypro_url'], $options);
+    $json_response = drupal_json_decode($response->data);
+
+    //WebService no retorna numero de transaccion, se guarda en lugar session_id
+    $json_response['transactionid'] = $pane_values['credit_card']['session_id'];
+
+    if (!isset($json_response)) {
+        _pt_qpaypro_save_invalid_transaction($order, $charge, t('Invalid callback to server.'));
+        return FALSE;
+    }
+
+    // Prepare a transaction object to log the API response.
+    $transaction = commerce_payment_transaction_new(QPAYPRO_METHOD_ID, $order->order_id);
+    $transaction->instance_id = $payment_method['instance_id'];
+    $transaction->remote_id = $json_response['transactionid'];
+    $transaction->amount = $charge['amount'];
+    $transaction->currency_code = $charge['currency_code'];
+    $transaction->payload[REQUEST_TIME] = (array) $json_response;
+
+    // If we didn't get an approval response code...
+    if ($json_response['result'] != 1) {
+        // Create a failed transaction with the error message.
+        $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+    }
+    else {
+        // Set the transaction status based on the type of transaction this was.
+        $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+    }
+
+    // Store the type of transaction in the remote status.
+    $transaction->remote_status = $response->code; //Verificar que se inserte el codigo de respuesta correcta
+
+    // Build a meaningful response message.
+    $response_code = response_codes_cybersource($json_response['responseCode']);
+    $message = array(
+        '<b>' . t('Authorization only') . '</b>',
+        '<b>' . ($json_response['result'] != 1 ? t('REJECTED') : t('ACCEPTED')) . ':</b> ' . check_plain($json_response['responseText']),
+        t('Response: @avs', array('@avs' => $response_code[1])),
+    );
+
+    // Add the CVV response.
+    $message[] = t('SCMP: @cvv', array('@cvv' => $response_code[0]));
+    $message[] = t('Result && Response Code: @response_code', array('@response_code' => $json_response['result'] .' / '. $json_response['responseCode']));
+
+    $transaction->message = implode('<br />', $message);
+
+    // Save the transaction information.
+    commerce_payment_transaction_save($transaction);
+
+    //Guardando numero de transaccion en Order
+    saveOrderTransactionId($order, $json_response['transactionid']);
+
+    // If the payment failed, display an error and rebuild the form.
+    if ($json_response['result'] != 1) {
+        drupal_set_message(t('We received the following error processing your card. Please enter you information again or try a different card.'), 'error');
+        return FALSE;
+    } else {
+        commerce_order_status_update($order, 'completed', FALSE, FALSE);
+        commerce_order_save($order);
+    }
+}
+
+/**
+ * Real IP
+ * @return mixed
+ */
+function getRealIP() {
+    if (!empty($_SERVER[‘HTTP_CLIENT_IP’]))
+        return $_SERVER[‘HTTP_CLIENT_IP’];
+
+    if (!empty($_SERVER[‘HTTP_X_FORWARDED_FOR’]))
+        return $_SERVER[‘HTTP_X_FORWARDED_FOR’];
+
+    return $_SERVER[‘REMOTE_ADDR’];
+}
+
+/**
+ * Save number transaction on order
+ * @param $order
+ * @param $transactionid
+ */
+function saveOrderTransactionId($order, $transactionid){
+    //$order = commerce_order_load($order_id);
+    $order->data['pt_qpaypro']['document'] = $transactionid;
+    commerce_order_save($order);
+}
+
+/**
+ * Function configure transaction for invalid amount.
+ */
+function _pt_qpaypro_save_invalid_transaction_for_amount($payment_method, $charge, $order, $card_type) {
+    $continue = TRUE;
+    // Prevent the transaction except under limited circumstances.
+    $prevent_transaction = TRUE;
+
+    // If the transaction should still be prevented...
+    if ($prevent_transaction) {
+        // Create a transaction to log the skipped transaction and display a
+        // helpful message to the customer.
+        $message = t('Invalid @amount transaction not attempted.', array('@amount' => commerce_currency_format($charge['amount'], $charge['currency_code'])));
+        _pt_qpaypro_save_invalid_transaction($order, $charge, $message);
+        $continue = FALSE;
+    }
+
+    return $continue;
+}
+
+/**
+ * Function store transaction for invalid amount.
+ */
+function _pt_qpaypro_save_invalid_transaction($order, $charge, $message) {
+    $transaction = commerce_payment_transaction_new(QPAYPRO_METHOD_ID, $order->order_id);
+    $transaction->amount = $charge['amount'];
+    $transaction->currency_code = $charge['currency_code'];
+    $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+    $transaction->message = $message;
+    commerce_payment_transaction_save($transaction);
+
+    drupal_set_message(t('We encountered an error processing your transaction. Please contact us to resolve the issue.'), 'error');
+}
+
+/**
+ * Response codes
+ * @param $code
+ * @return array
+ */
+function response_codes_cybersource($code){
+    $result = array();
+    switch ($code) {
+        case 100:
+            $result[0] = "SOK";
+            $result[1] = t('Aproved');
+            break;
+        case 101:
+            $result[0] = "DMISSINGFIELD";
+            $result[1] = t('Declined - The request is missing one or more fields');
+            break;
+        case 102:
+            $result[0] = "DINVALIDDATA";
+            $result[1] = t('Declined - One or more fields in the request contains invalid data');
+            break;
+        default:
+            $result[0] = "";
+            $result[1] = "";
+            break;
+    }
+    return $result;
+}
